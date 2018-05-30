@@ -109,10 +109,15 @@ def transactionPOST():
     if not 'id' in data:
         data['id'] = sha256(dumps(data).encode()).hexdigest()
     message, rc = server.createNewTransaction(data)
-    #if rc == 201:
-        #for node in nodes:
-            #url = 'http://{}/transaction'.format(node)
-            #post(url, json=data, headers={ 'Content-type':'application/json' })
+    if rc == 201:
+        local = gethostbyname(gethostname()) + ':' + str(port)
+        for node in nodes:
+            h, p = node.split(':')
+            if h in local:
+                url = 'http://localhost:' + p + '/transaction'
+            else:
+                url = 'http://{}/transaction'.format(node)
+            post(url, json=data, headers={ 'Content-type':'application/json' })
     return message, rc
 
 # ==============================================================================
