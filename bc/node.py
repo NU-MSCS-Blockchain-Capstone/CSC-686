@@ -1,7 +1,7 @@
 from flask import Flask, request
 from hashlib import sha256
 from json import dumps, loads
-from requests import post
+from requests import get, post
 from socket import gethostbyname, gethostname
 from sys import argv
 
@@ -9,8 +9,10 @@ from src.server import Server
 
 '''
 This code represents the public facing interface for a TrustNet network node.  It uses a Server object
-to implement the actual function, simply passing data from the endpoints to that instance.  Furhter, it
+to implement the internal function, simply passing data from the endpoints to that instance.  Additional
+action that needs to take place between nodes on the TrustNet are dealt with here.  Further, it
 initializes the Flask application, defines its endpoints, and starts it running.
+
 To run the TrustNet network:
     To start the first node, type in:
         python3 node.py 8001
@@ -21,6 +23,7 @@ To run the TrustNet network:
         where <hostname> is the previous node's host, and <port> is its port
         
     Each time a node is added, output from each running node indicates that a new node has joined TrustNet
+    
 HTTP response codes:  
   
     200           request handled OK
@@ -28,7 +31,6 @@ HTTP response codes:
     400           bad request, invalid parameters, etc.
 '''
 
-transactions = []
 users = {}
 nodes = set()
 
@@ -36,25 +38,35 @@ if len(argv) > 1:
     port = int(argv[1])
 else:
     port = 8001
-  
+    
 if len(argv) > 3:
-    nodes.add(argv[2] + ':' + argv[3])
-    body = { 'node' : gethostbyname(gethostname()) + ':' + str(port) }
-    addrs = set()
-    for node in nodes:
-        addr = 'http://{}/node'.format(node)
-        response = post(addr, json=body, headers={'Content-type':'application/json'})
-        hosts = loads(response.text)
-        for host in hosts:
-            addrs.add(host)
-    nodes.update(addrs)
-
-    for node in nodes:
-        if node == body['node']:
+    if argv[2] == 'localhost':
+        remote = gethostbyname(gethostname()) + ':' + argv[3]
+    else:
+        remote = argv[2] + ':' + argv[3]
+    local = gethostbyname(gethostname()) + ':' + str(port)
+    
+    reached = set()
+    unreached = set()
+    unreached.add(remote)
+    body = { 'node' : local }
+    while len(unreached) > 0:
+        node = unreached.pop()
+        if node in reached or node == local:
             continue
-        addr = 'http://{}/node'.format(node)
-        response = post(addr, json=body, headers={'Content-type':'application/json'})
-    nodes.remove(body['node'])
+        h, p = node.split(':')
+        if h in local:
+            url = 'http://localhost:' + p + '/node'
+        else:
+            url = 'http://{}/node'.format(node)
+        post(url, json=body, headers={ 'Content-type':'application/json' })
+        response = get(url)
+        addresses = loads(response.text)
+        for address in addresses:
+            unreached.add(address)
+        nodes.add(node)
+        reached.add(node)
+    nodes.update(reached)
     
 server = Server()
 
@@ -81,15 +93,27 @@ def minePOST():
 
 @app.route('/node', methods=['GET'])
 def nodeGET():
-    return server.readAllNodes()
+    return dumps(list(nodes)), 200
 
-@app.route('/node/', methods=['POST'])
+@app.route('/node', methods=['POST'])
 def nodePOST():
-    return server.updateWithNewNode(request)
+    body = request.get_json()
+    node = body['node']
+    host, port = node.split(':')
+    nodes.add(host + ':' + port)
+    return 'OK', 200
 
 @app.route('/transaction', methods=['POST'])
 def transactionPOST():
-    return server.createNewTransaction()
+    data = request.get_json()
+    if not 'id' in data:
+        data['id'] = sha256(dumps(data).encode()).hexdigest()
+    message, rc = server.createNewTransaction(data)
+    #if rc == 201:
+        #for node in nodes:
+            #url = 'http://{}/transaction'.format(node)
+            #post(url, json=data, headers={ 'Content-type':'application/json' })
+    return message, rc
 
 # ==============================================================================
 # debugging endpoints for prototype use
@@ -121,8 +145,8 @@ def getUserIdByHandle(user):
 
 # endpoint to dump transactions
 @app.route('/transaction', methods=['GET'])
-def getTransactions():
-    return "/transaction:getTransactions(" + dumps(transactions) + ")", 200
+def transactionGET():
+    return server.getTransactions()
 
 # run Flask application
 app.run(port=port, debug=True)
