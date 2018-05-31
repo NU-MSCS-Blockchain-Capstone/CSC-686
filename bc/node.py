@@ -38,14 +38,14 @@ if len(argv) > 1:
     port = int(argv[1])
 else:
     port = 8001
-    
+local = gethostbyname(gethostname()) + ':' + str(port)
+  
 if len(argv) > 3:
     if argv[2] == 'localhost':
         remote = gethostbyname(gethostname()) + ':' + argv[3]
     else:
         remote = argv[2] + ':' + argv[3]
-    local = gethostbyname(gethostname()) + ':' + str(port)
-    
+   
     reached = set()
     unreached = set()
     unreached.add(remote)
@@ -110,7 +110,6 @@ def transactionPOST():
         data['id'] = sha256(dumps(data).encode()).hexdigest()
     message, rc = server.createNewTransaction(data)
     if rc == 201:
-        local = gethostbyname(gethostname()) + ':' + str(port)
         for node in nodes:
             h, p = node.split(':')
             if h in local:
